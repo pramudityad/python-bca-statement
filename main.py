@@ -151,6 +151,25 @@ def calculate_balance(dataframe):
     return dataframe
 
 
+def save_to_csv(dataframe, output_filename):
+    
+    csv_filename = output_filename.replace('.xlsx', '.csv')
+    df_trimmed = dataframe.iloc[:-3]
+    
+    if os.path.isfile(csv_filename):
+        # If file exists, append with header for the period
+        with open(csv_filename, 'a', encoding='utf-8') as f:
+            f.write(f'\n{periode}\n')
+        df_trimmed.to_csv(csv_filename, mode='a', index=False, header=True)
+    else:
+        # Create new file with header for the period
+        with open(csv_filename, 'w', encoding='utf-8') as f:
+            f.write(f'{periode}\n')
+        df_trimmed.to_csv(csv_filename, mode='a', index=False, header=True)
+    
+    return
+
+
 def save_to_excel(dataframe, output_filename):
 
     if os.path.isfile(output_filename):
@@ -232,5 +251,6 @@ for filename in pbar:
         transaction_dataframe = calculate_balance(transaction_dataframe)
 
         save_to_excel(transaction_dataframe, output_filename)
+        save_to_csv(transaction_dataframe, output_filename)
 
 reorder_sheets(output_filename)
