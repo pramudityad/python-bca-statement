@@ -153,19 +153,11 @@ def calculate_balance(dataframe):
 
 def save_to_csv(dataframe, output_filename):
     
-    csv_filename = output_filename.replace('.xlsx', '.csv')
+    base_filename = output_filename.replace('.xlsx', '')
+    csv_filename = f"{base_filename}_{periode}.csv"
     df_trimmed = dataframe.iloc[:-3]
     
-    if os.path.isfile(csv_filename):
-        # If file exists, append with header for the period
-        with open(csv_filename, 'a', encoding='utf-8') as f:
-            f.write(f'\n{periode}\n')
-        df_trimmed.to_csv(csv_filename, mode='a', index=False, header=True)
-    else:
-        # Create new file with header for the period
-        with open(csv_filename, 'w', encoding='utf-8') as f:
-            f.write(f'{periode}\n')
-        df_trimmed.to_csv(csv_filename, mode='a', index=False, header=True)
+    df_trimmed.to_csv(csv_filename, index=False)
     
     return
 
