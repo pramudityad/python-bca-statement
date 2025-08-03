@@ -1,27 +1,88 @@
-# MyBCA E-statement Processing Script
-This Python script is designed to process bank statements in PDF format, extract transaction data, calculate balances, and save the data into an Excel spreadsheet. It utilizes various libraries such as pandas, numpy, tabula, tqdm, and openpyxl.
+# AFTIS (Automated Financial Transaction Ingestion System)
 
-## Features
-1. PDF Parsing: Uses the tabula library to extract tabular data from PDF files.
-2. Transaction Extraction: Extracts transaction data from bank statements, including dates, descriptions, amounts, and transaction types.
-3. Balance Calculation: Calculates the balance for each transaction based on the previous balance and transaction amount.
-4. Output to Excel: Saves the processed transaction data into an Excel spreadsheet, with each statement represented as a separate sheet.
-5. Sheet Reordering: Reorders the sheets in the Excel file based on the period (year and month) of each statement.
+A minimal self-hosted pipeline that converts BCA bank statement PDFs into database rows using n8n + Docker + Supabase.
 
-## Usage
-1. Ensure you have Python installed on your system.
-2. Install the required libraries by running:
+## Quick Start
+
+### 1. Setup Supabase Database
 ```bash
-  pip install pipenv
-  pipenv shell
-  pipenv install
+# Run this in your Supabase SQL editor
+cat schema.sql | # copy and paste into Supabase
 ```
-3. Create a folder named ```statements```
-4. Place your bank statement PDF files in the ```statements``` folder
-5. Run the script ```python main.py```
 
-## Additional Notes
-The script assumes the contents of ```statements``` folder are e-statements downloaded from myBCA application
+### 2. Configure Environment
+```bash
+cp .env.example .env
+# Edit .env with your Supabase credentials
+```
 
-## Output Example
-![Screenshot 2024-10-18 003737](https://github.com/user-attachments/assets/f39e8c65-d919-47fd-a9bd-ec1c2a7d85ed)
+### 3. Start the Pipeline
+```bash
+docker-compose up -d
+```
+
+### 4. Import n8n Workflow
+1. Open http://localhost:5678 (admin/admin123)
+2. Go to Workflows → Import from File
+3. Upload `aftis-workflow.json`
+4. Activate the workflow
+
+### 5. Test the System
+```bash
+# Test parser service directly
+curl http://localhost:8080/health
+
+# Drop a BCA e-statement PDF into the inbox volume
+docker cp your-statement.pdf aftis-parser:/srv/aftis/inbox/
+
+# Test scanning
+curl http://localhost:8080/scan
+
+# Check logs to see processing
+docker-compose logs -f
+
+# Verify data in Supabase dashboard
+```
+
+## How It Works
+
+Every night at 02:00, the system:
+1. Scans `inbox/` for `*.pdf` files
+2. Copies each file to `tmp/` for processing
+3. Runs `parse.py` to extract transactions as JSON
+4. Bulk inserts the data into Supabase
+5. Cleans up temporary files
+
+## File Structure
+```
+├── docker-compose.yml     # n8n container stack
+├── .env                   # supabase credentials
+├── parse.py              # pdf → json parser
+├── schema.sql            # database table DDL
+├── aftis-workflow.json   # n8n workflow definition
+├── inbox/                # drop PDFs here
+├── tmp/                  # processing workspace
+└── n8n_data/            # persistent n8n storage
+```
+
+## Manual Testing
+
+Test the parser directly:
+```bash
+python parse.py inbox/your-statement.pdf
+```
+
+## Troubleshooting
+
+- **No transactions extracted**: Check PDF format matches BCA e-statement layout
+- **Database insert fails**: Verify Supabase credentials in `.env`
+- **n8n workflow errors**: Check container logs with `docker-compose logs n8n`
+
+## Dependencies
+
+The parser requires:
+- `tabula-py` (PDF table extraction)
+- `pandas` (data processing)
+- `numpy` (numerical operations)
+
+Install manually: `pip install tabula-py pandas numpy`

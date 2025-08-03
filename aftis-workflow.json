@@ -1,0 +1,184 @@
+{
+  "name": "AFTIS Core Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Daily 02:00",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "http://parser:8080/scan"
+      },
+      "id": "scan-inbox",
+      "name": "Scan Inbox",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract files from scan response\nconst files = items[0].json.files || [];\n\n// Return array of file objects\nreturn files.map(file => ({ json: { pdf_path: file } }));"
+      },
+      "id": "split-files",
+      "name": "Split Files",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "http://parser:8080/parse",
+        "options": {
+          "headers": {
+            "Content-Type": "application/json"
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"pdf_path\": \"{{ $json.pdf_path }}\"}"
+      },
+      "id": "parse-pdf",
+      "name": "Parse PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [840, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract transactions from parser response\nconst transactions = items[0].json.transactions || [];\n\n// Return transactions for database insertion\nreturn [{ json: { transactions: transactions } }];"
+      },
+      "id": "format-data",
+      "name": "Format Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1040, 300]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/transactions",
+        "options": {
+          "headers": {
+            "apikey": "={{ $env.SUPABASE_SERVICE_KEY }}",
+            "Authorization": "Bearer {{ $env.SUPABASE_SERVICE_KEY }}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal"
+          }
+        },
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "transactions",
+              "value": "={{ JSON.stringify($json.transactions) }}"
+            }
+          ]
+        }
+      },
+      "id": "insert-db",
+      "name": "Insert to DB",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1240, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Cleanup is handled by the parser service\n// Just pass through the data\nreturn items;"
+      },
+      "id": "cleanup",
+      "name": "Cleanup Complete",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1440, 300]
+    }
+  ],
+  "connections": {
+    "Daily 02:00": {
+      "main": [
+        [
+          {
+            "node": "Scan Inbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scan Inbox": {
+      "main": [
+        [
+          {
+            "node": "Split Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Files": {
+      "main": [
+        [
+          {
+            "node": "Parse PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse PDF": {
+      "main": [
+        [
+          {
+            "node": "Format Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Data": {
+      "main": [
+        [
+          {
+            "node": "Insert to DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert to DB": {
+      "main": [
+        [
+          {
+            "node": "Cleanup Temp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {},
+  "versionId": "1",
+  "id": "aftis-core",
+  "meta": {
+    "instanceId": "aftis"
+  }
+}
