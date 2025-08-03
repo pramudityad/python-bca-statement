@@ -410,8 +410,9 @@ def main():
     os.makedirs('/srv/aftis/inbox', exist_ok=True)
     os.makedirs('/srv/aftis/tmp', exist_ok=True)
     
-    server = HTTPServer(('0.0.0.0', 8080), AFTISHandler)
-    print("AFTIS Parser Server starting on port 8080...")
+    port = int(os.getenv('AFTIS_PORT', '8080'))
+    server = HTTPServer(('0.0.0.0', port), AFTISHandler)
+    print(f"AFTIS Parser Server starting on port {port}...")
     server.serve_forever()
 
 if __name__ == "__main__":
