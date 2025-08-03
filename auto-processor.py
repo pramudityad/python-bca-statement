@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 class PDFProcessor(FileSystemEventHandler):
     def __init__(self):
-        self.parser_url = "http://localhost:8080"
+        self.parser_url = os.getenv('PARSER_URL', "http://parser:8080")
         self.inbox_path = "/srv/aftis/inbox"
         self.failed_path = "/srv/aftis/failed"
         self.processing_files = set()  # Track files currently being processed
@@ -68,30 +68,32 @@ class PDFProcessor(FileSystemEventHandler):
         
         return False
     
-    def is_parser_healthy(self):
-        """Check if the parser service is running"""
-        try:
-            response = requests.get(f"{self.parser_url}/health", timeout=5)
-            return response.status_code == 200
-        except requests.RequestException:
-            return False
     
     def process_pdf(self, file_path):
         """Process a PDF file through the parser API"""
         filename = os.path.basename(file_path)
         
-        if not self.is_parser_healthy():
-            logger.error(f"Parser service not healthy, skipping {filename}")
-            return False
-        
         try:
+            # Check if parser service is available before processing
+            logger.debug(f"Checking parser health before processing {filename}")
+            health_response = requests.get(f"{self.parser_url}/health", timeout=5)
+            if health_response.status_code != 200:
+                logger.error(f"Parser service unhealthy (status {health_response.status_code}), skipping {filename}")
+                return False
+            
+            logger.debug(f"Parser healthy, processing {filename}")
+            
             # Call parse-and-store endpoint
             payload = {"pdf_path": file_path}
+            logger.debug(f"Calling {self.parser_url}/parse-and-store with payload: {payload}")
+            
             response = requests.post(
                 f"{self.parser_url}/parse-and-store",
                 json=payload,
                 timeout=30
             )
+            
+            logger.debug(f"Parse response: {response.status_code} - {response.text[:200]}...")
             
             if response.status_code == 200:
                 result = response.json()
@@ -106,14 +108,23 @@ class PDFProcessor(FileSystemEventHandler):
                     logger.error(f"✗ Processing failed for {filename}: {result}")
                     return False
             else:
-                logger.error(f"✗ API call failed for {filename}: {response.status_code} - {response.text}")
+                logger.error(f"✗ API call failed for {filename}: HTTP {response.status_code}")
+                logger.error(f"Response: {response.text}")
                 return False
                 
+        except requests.Timeout as e:
+            logger.error(f"✗ Timeout error processing {filename}: {e}")
+            return False
+        except requests.ConnectionError as e:
+            logger.error(f"✗ Connection error processing {filename}: {e}")
+            return False
         except requests.RequestException as e:
             logger.error(f"✗ Network error processing {filename}: {e}")
             return False
         except Exception as e:
             logger.error(f"✗ Unexpected error processing {filename}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
     
     def handle_successful_processing(self, file_path):

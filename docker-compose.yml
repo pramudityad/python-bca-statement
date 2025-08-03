@@ -47,6 +47,7 @@ services:
       - AUTO_DELETE_PDFS=${AUTO_DELETE_PDFS:-true}
       - PROCESS_DELAY_SECONDS=${PROCESS_DELAY_SECONDS:-2}
       - MAX_RETRIES=${MAX_RETRIES:-3}
+      - PARSER_URL=${PARSER_URL:-http://parser:8080}
     volumes:
       - shared-data:/srv/aftis
       - ./inbox:/srv/aftis/inbox
