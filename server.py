@@ -103,6 +103,15 @@ class AFTISHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
     
+    def do_DELETE(self):
+        """Handle DELETE requests"""
+        if self.path.startswith('/inbox/'):
+            self.delete_inbox_file()
+        elif self.path == '/inbox':
+            self.clear_inbox()
+        else:
+            self.send_error(404)
+    
     def test_response(self):
         """Simple test endpoint"""
         try:
@@ -328,6 +337,71 @@ class AFTISHandler(BaseHTTPRequestHandler):
             else:
                 self.send_error(500, f'Parser error: {result.stderr}')
                 
+        except Exception as e:
+            self.send_error(500, str(e))
+    
+    def delete_inbox_file(self):
+        """Delete a specific file from inbox"""
+        try:
+            # Extract filename from path /inbox/filename.pdf
+            filename = self.path.split('/')[-1]
+            file_path = os.path.join('/srv/aftis/inbox', filename)
+            
+            if not os.path.exists(file_path):
+                self.send_error(404, f'File {filename} not found')
+                return
+            
+            # Security check: ensure file is in inbox directory
+            if not os.path.abspath(file_path).startswith('/srv/aftis/inbox/'):
+                self.send_error(403, 'Access denied')
+                return
+            
+            os.remove(file_path)
+            logger.info(f"Deleted file: {filename}")
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'success': True,
+                'message': f'File {filename} deleted successfully'
+            }).encode())
+            
+        except OSError as e:
+            self.send_error(500, f'Failed to delete file: {str(e)}')
+        except Exception as e:
+            self.send_error(500, str(e))
+    
+    def clear_inbox(self):
+        """Delete all PDF files from inbox"""
+        try:
+            inbox_path = '/srv/aftis/inbox'
+            deleted_files = []
+            
+            if not os.path.exists(inbox_path):
+                self.send_error(404, 'Inbox directory not found')
+                return
+            
+            for filename in os.listdir(inbox_path):
+                if filename.lower().endswith('.pdf'):
+                    file_path = os.path.join(inbox_path, filename)
+                    try:
+                        os.remove(file_path)
+                        deleted_files.append(filename)
+                        logger.info(f"Deleted file: {filename}")
+                    except OSError as e:
+                        logger.error(f"Failed to delete {filename}: {e}")
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'success': True,
+                'deleted_files': deleted_files,
+                'count': len(deleted_files),
+                'message': f'Deleted {len(deleted_files)} PDF files from inbox'
+            }).encode())
+            
         except Exception as e:
             self.send_error(500, str(e))
 
