@@ -10,7 +10,9 @@ RUN apk add --no-cache \
         tabula-py \
         pandas \
         numpy \
-        psycopg2-binary
+        psycopg2-binary \
+        requests \
+        watchdog
 
 # Set Java home for tabula-py
 ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk
@@ -21,9 +23,10 @@ WORKDIR /srv/aftis
 # Copy application files
 COPY parse.py .
 COPY server.py .
+COPY auto-processor.py .
 
 # Create directories
-RUN mkdir -p inbox tmp
+RUN mkdir -p inbox tmp failed
 
 # Expose port
 EXPOSE 8080

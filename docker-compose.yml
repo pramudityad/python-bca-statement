@@ -33,10 +33,26 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aftis_password}
     volumes:
       - shared-data:/srv/aftis
+      - ./inbox:/srv/aftis/inbox
     depends_on:
       postgres:
         condition: service_healthy
     command: python3 /srv/aftis/server.py
+
+  auto-processor:
+    build: .
+    container_name: aftis-auto-processor
+    restart: unless-stopped
+    environment:
+      - AUTO_DELETE_PDFS=${AUTO_DELETE_PDFS:-true}
+      - PROCESS_DELAY_SECONDS=${PROCESS_DELAY_SECONDS:-2}
+      - MAX_RETRIES=${MAX_RETRIES:-3}
+    volumes:
+      - shared-data:/srv/aftis
+      - ./inbox:/srv/aftis/inbox
+    depends_on:
+      - parser
+    command: python3 /srv/aftis/auto-processor.py
 
 volumes:
   shared-data:
