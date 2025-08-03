@@ -133,16 +133,45 @@ def parse_pdf(pdf_path):
             transaction['account_number'] = account_number
             transaction['period'] = periode
             
+            # Handle NaN values by converting them to None
+            for key, value in transaction.items():
+                if pd.isna(value) or (isinstance(value, float) and np.isnan(value)):
+                    transaction[key] = None
+            
             # Convert date to ISO format if possible
             try:
                 if transaction['date'] and not pd.isna(transaction['date']):
-                    # Assuming DD/MM/YYYY format from BCA statements
-                    date_obj = datetime.strptime(str(transaction['date']), '%d/%m/%Y')
-                    transaction['date'] = date_obj.strftime('%Y-%m-%d')
-            except:
-                pass  # Keep original date if parsing fails
+                    date_str = str(transaction['date']).strip()
+                    # Extract year from period (format: "DEC 2024" or "2024 DEC")
+                    period_parts = periode.split()
+                    year = None
+                    for part in period_parts:
+                        if part.isdigit() and len(part) == 4:
+                            year = part
+                            break
+                    
+                    if year and '/' in date_str:
+                        # Handle DD/MM format by adding year
+                        if len(date_str.split('/')) == 2:
+                            date_str = f"{date_str}/{year}"
+                        
+                        # Parse DD/MM/YYYY format
+                        date_obj = datetime.strptime(date_str, '%d/%m/%Y')
+                        transaction['date'] = date_obj.strftime('%Y-%m-%d')
+                    else:
+                        # If we can't extract year or parse date, keep original
+                        pass
+            except Exception as e:
+                # Keep original date if parsing fails
+                pass
         
-        return transactions
+        # Filter out transactions with invalid dates (None or empty)
+        valid_transactions = []
+        for transaction in transactions:
+            if transaction.get('date') and transaction['date'] not in [None, '', 'None']:
+                valid_transactions.append(transaction)
+        
+        return valid_transactions
         
     except Exception as e:
         print(f"Error parsing PDF: {str(e)}", file=sys.stderr)
@@ -157,22 +186,8 @@ def main():
     pdf_path = sys.argv[1]
     transactions = parse_pdf(pdf_path)
     
-    # Clean up NaN values for valid JSON
-    import math
-    def clean_nan(obj):
-        if isinstance(obj, dict):
-            return {k: clean_nan(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [clean_nan(item) for item in obj]
-        elif isinstance(obj, float) and math.isnan(obj):
-            return None
-        else:
-            return obj
-    
-    clean_transactions = clean_nan(transactions)
-    
     # Output JSON to stdout
-    print(json.dumps(clean_transactions, indent=2, default=str))
+    print(json.dumps(transactions, indent=2, default=str))
 
 
 if __name__ == "__main__":

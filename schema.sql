@@ -1,5 +1,5 @@
 -- AFTIS Transactions Table
--- Run this in your Supabase SQL editor to create the transactions table
+-- PostgreSQL schema for BCA bank statement transactions
 
 CREATE TABLE transactions (
     id SERIAL PRIMARY KEY,
@@ -16,14 +16,22 @@ CREATE TABLE transactions (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Create index for common queries
+-- Create indexes for common queries
 CREATE INDEX idx_transactions_date ON transactions(date);
 CREATE INDEX idx_transactions_account ON transactions(account_number);
 CREATE INDEX idx_transactions_period ON transactions(period);
+CREATE INDEX idx_transactions_created_at ON transactions(created_at);
 
--- Enable RLS (Row Level Security) - optional but recommended
-ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
-
--- Create policy to allow service role full access
-CREATE POLICY "Service role can manage transactions" ON transactions
-FOR ALL USING (auth.role() = 'service_role');
+-- Create a view for monthly summaries
+CREATE VIEW monthly_summary AS
+SELECT 
+    account_number,
+    period,
+    COUNT(*) as transaction_count,
+    SUM(CASE WHEN transaction_type = 'DB' THEN amount ELSE 0 END) as total_debits,
+    SUM(CASE WHEN transaction_type = 'CR' THEN amount ELSE 0 END) as total_credits,
+    MIN(date) as period_start,
+    MAX(date) as period_end,
+    MAX(balance) as ending_balance
+FROM transactions 
+GROUP BY account_number, period;
