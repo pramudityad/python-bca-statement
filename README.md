@@ -1,27 +1,116 @@
-# MyBCA E-statement Processing Script
-This Python script is designed to process bank statements in PDF format, extract transaction data, calculate balances, and save the data into an Excel spreadsheet. It utilizes various libraries such as pandas, numpy, tabula, tqdm, and openpyxl.
+# AFTIS (Automated Financial Transaction Ingestion System)
 
-## Features
-1. PDF Parsing: Uses the tabula library to extract tabular data from PDF files.
-2. Transaction Extraction: Extracts transaction data from bank statements, including dates, descriptions, amounts, and transaction types.
-3. Balance Calculation: Calculates the balance for each transaction based on the previous balance and transaction amount.
-4. Output to Excel: Saves the processed transaction data into an Excel spreadsheet, with each statement represented as a separate sheet.
-5. Sheet Reordering: Reorders the sheets in the Excel file based on the period (year and month) of each statement.
+A minimal self-hosted pipeline that converts BCA bank statement PDFs into database rows using Docker + PostgreSQL.
 
-## Usage
-1. Ensure you have Python installed on your system.
-2. Install the required libraries by running:
+## Quick Start
+
+### 1. Configure Environment
 ```bash
-  pip install pipenv
-  pipenv shell
-  pipenv install
+cp .env.example .env
+# Edit .env with your PostgreSQL credentials (optional - defaults are provided)
 ```
-3. Create a folder named ```statements```
-4. Place your bank statement PDF files in the ```statements``` folder
-5. Run the script ```python main.py```
 
-## Additional Notes
-The script assumes the contents of ```statements``` folder are e-statements downloaded from myBCA application
+### 2. Start the Services
+```bash
+docker-compose up -d
+```
 
-## Output Example
-![Screenshot 2024-10-18 003737](https://github.com/user-attachments/assets/f39e8c65-d919-47fd-a9bd-ec1c2a7d85ed)
+This will start:
+- PostgreSQL database on port 5432
+- Parser service on port 8080
+
+### 3. Test the System
+```bash
+# Test parser service health
+curl http://localhost:8080/health
+
+# Test database connection
+curl http://localhost:8080/db-health
+
+# Drop a BCA e-statement PDF into the inbox volume
+docker cp your-statement.pdf aftis-parser:/srv/aftis/inbox/
+
+# Test scanning for PDFs
+curl http://localhost:8080/scan
+
+# Parse and store a PDF in database
+curl -X POST http://localhost:8080/parse-and-store \
+  -H "Content-Type: application/json" \
+  -d '{"pdf_path": "/srv/aftis/inbox/your-statement.pdf"}'
+
+# Retrieve stored transactions
+curl "http://localhost:8080/transactions?limit=10"
+
+# Check logs
+docker-compose logs -f
+```
+
+## How It Works
+
+The system provides:
+1. **PDF Parsing**: Extracts transaction data from BCA e-statement PDFs
+2. **Database Storage**: Stores transactions in PostgreSQL with proper indexing
+3. **REST API**: Provides endpoints for parsing, storing, and retrieving data
+4. **Data Export**: Maintains compatibility with Excel/CSV output
+
+## API Endpoints
+
+- `GET /health` - Service health check
+- `GET /db-health` - Database connectivity check
+- `GET /scan` - List PDF files in inbox
+- `POST /parse` - Parse PDF and return JSON (no database storage)
+- `POST /parse-and-store` - Parse PDF and store in database
+- `GET /transactions` - Retrieve transactions with optional filters
+  - Query parameters: `limit`, `account`, `period`
+
+## File Structure
+```
+├── docker-compose.yml     # PostgreSQL + parser services
+├── .env                   # PostgreSQL credentials
+├── parse.py              # PDF → JSON parser
+├── server.py             # HTTP API server
+├── schema.sql            # PostgreSQL table DDL
+├── Dockerfile            # Parser service container
+├── main.py               # Original standalone script
+├── inbox/                # Drop PDFs here (in container)
+└── tmp/                  # Processing workspace
+```
+
+## Manual Testing
+
+Test the parser directly:
+```bash
+# Using the original standalone script
+python main.py
+
+# Using the API parser
+python parse.py statements/your-statement.pdf
+```
+
+## Database Access
+
+Connect to PostgreSQL directly:
+```bash
+# Using docker exec
+docker exec -it aftis-postgres psql -U aftis_user -d aftis
+
+# Using local client (if installed)
+psql postgresql://aftis_user:aftis_password@localhost:5432/aftis
+```
+
+## Troubleshooting
+
+- **No transactions extracted**: Check PDF format matches BCA e-statement layout
+- **Database connection fails**: Check PostgreSQL container status with `docker-compose logs postgres`
+- **Parser errors**: Check container logs with `docker-compose logs parser`
+- **Port conflicts**: Modify ports in docker-compose.yml if needed
+
+## Dependencies
+
+The parser requires:
+- `tabula-py` (PDF table extraction)
+- `pandas` (data processing)
+- `numpy` (numerical operations)
+- `psycopg2-binary` (PostgreSQL connectivity)
+
+Install manually: `pip install tabula-py pandas numpy psycopg2-binary`
