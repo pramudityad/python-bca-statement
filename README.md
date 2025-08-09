@@ -4,20 +4,28 @@ A minimal self-hosted pipeline that converts BCA bank statement PDFs into databa
 
 ## Quick Start
 
-### 1. Configure Environment
+### 🚀 Automated Startup (Recommended)
 ```bash
-cp .env.example .env
-# Edit .env with your PostgreSQL credentials (optional - defaults are provided)
+# One-command startup with automatic port conflict resolution
+./start.sh
 ```
 
-### 2. Start the Services
+### 🔧 Manual Setup
 ```bash
+# 1. Check for port conflicts
+./check-ports.sh
+
+# 2. Configure environment (optional)
+cp .env.example .env
+# Edit .env with custom ports/credentials if needed
+
+# 3. Start services
 docker-compose up -d
 ```
 
 This will start:
-- PostgreSQL database on port 5432
-- Parser service on port 8080
+- PostgreSQL database (default port 5432, configurable)
+- Parser service with web interface (default port 8080, configurable)
 - Auto-processor service (monitors inbox and processes PDFs automatically)
 
 ### 3. Automated Processing
@@ -71,12 +79,30 @@ The system provides:
 4. **REST API**: Provides endpoints for parsing, storing, and retrieving data
 5. **File Management**: Auto-deletion of processed files, failed files moved to `failed/` directory
 
-## Auto-Processor Configuration
+## Configuration
 
-Environment variables for the auto-processor service:
+### Port Configuration
+- `AFTIS_PORT=8080` - Parser service web interface port
+- `POSTGRES_PORT=5432` - PostgreSQL database port
+
+### Auto-Processor Configuration
 - `AUTO_DELETE_PDFS=true` - Delete files after successful processing (default: true)
 - `PROCESS_DELAY_SECONDS=2` - Wait time before processing new files (default: 2)
 - `MAX_RETRIES=3` - Number of retry attempts for failed processing (default: 3)
+- `SCAN_INTERVAL_SECONDS=60` - Periodic scan interval for missed files (default: 60)
+
+### Port Conflict Handling
+
+**If ports are already in use**, the system provides multiple solutions:
+
+1. **Automatic Resolution**: Use `./start.sh` - automatically detects conflicts and uses available ports
+2. **Manual Port Check**: Use `./check-ports.sh` - shows conflicts and suggests alternative ports  
+3. **Custom Configuration**: Set custom ports in `.env` file:
+   ```bash
+   echo "AFTIS_PORT=8081" >> .env
+   echo "POSTGRES_PORT=5433" >> .env
+   docker-compose up -d
+   ```
 
 ## API Endpoints
 
@@ -92,11 +118,14 @@ Environment variables for the auto-processor service:
 
 ## File Structure
 ```
-├── docker-compose.yml     # PostgreSQL + parser + auto-processor services
-├── .env                   # PostgreSQL credentials
+├── docker-compose.yml     # PostgreSQL + parser + auto-processor services  
+├── .env                   # Environment configuration (copy from .env.example)
+├── .env.example          # Environment template with defaults
+├── start.sh              # Enhanced startup script with port conflict handling
+├── check-ports.sh        # Port conflict detection and resolution utility
 ├── parse.py              # PDF → JSON parser
 ├── server.py             # HTTP API server with DELETE endpoints
-├── auto-processor.py     # Automated PDF processing service
+├── auto-processor.py     # Automated PDF processing service (enhanced)
 ├── schema.sql            # PostgreSQL table DDL
 ├── Dockerfile            # Service containers
 ├── main.py               # Original standalone script
@@ -128,13 +157,47 @@ psql postgresql://aftis_user:aftis_password@localhost:5432/aftis
 
 ## Troubleshooting
 
+### Common Issues
+
+- **Port conflicts**: Use `./start.sh` for automatic resolution or `./check-ports.sh` to diagnose
 - **No transactions extracted**: Check PDF format matches BCA e-statement layout
-- **Database connection fails**: Check PostgreSQL container status with `docker-compose logs postgres`
-- **Parser errors**: Check container logs with `docker-compose logs parser`
-- **Auto-processor issues**: Check auto-processor logs with `docker-compose logs auto-processor`
-- **Files not being processed**: Ensure auto-processor service is running and check logs
-- **Port conflicts**: Modify ports in docker-compose.yml if needed
-- **DELETE endpoints not working**: Rebuild containers with `docker-compose build` if using older images
+- **Files not auto-processing**: Check auto-processor logs and ensure container is running
+- **Database connection fails**: Verify PostgreSQL container health
+
+### Detailed Diagnostics
+
+```bash
+# Check service status
+docker-compose ps
+
+# View logs
+docker-compose logs -f                    # All services
+docker-compose logs -f auto-processor     # Auto-processor only
+docker-compose logs -f parser             # Parser service only
+docker-compose logs -f postgres           # Database only
+
+# Check port availability
+./check-ports.sh
+
+# Test API endpoints
+curl http://localhost:8080/health         # Service health
+curl http://localhost:8080/db-health      # Database connectivity
+curl http://localhost:8080/scan           # Inbox contents
+
+# Restart services
+docker-compose restart
+docker-compose down && docker-compose up -d
+
+# Rebuild containers (after code changes)
+docker-compose build --no-cache
+```
+
+### Auto-Processor Issues
+
+- **Files not detected**: Check if containers have access to `./inbox/` directory
+- **Processing failures**: Check for PDF format compatibility and container logs
+- **Missed files**: Auto-processor now includes periodic scanning (every 60s by default)
+- **Port conflicts in internal services**: Auto-processor will retry with exponential backoff
 
 ## Dependencies
 
