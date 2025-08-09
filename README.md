@@ -29,6 +29,8 @@ This will start:
 - Auto-processor service (monitors inbox and processes PDFs automatically)
 
 ### 3. Automated Processing
+
+#### Default Configuration
 ```bash
 # Simply copy PDFs to the local inbox directory
 cp your-statement.pdf ./inbox/
@@ -39,6 +41,16 @@ cp your-statement.pdf ./inbox/
 # 3. Store transactions in the database
 # 4. Delete the PDF file after successful processing
 # 5. Move failed files to /srv/aftis/failed/
+```
+
+#### Custom Inbox Directory (e.g., Syncthing)
+```bash
+# Configure for external directory like /var/syncthing/eStatement
+echo "INBOX_HOST_PATH=/var/syncthing/eStatement" >> .env
+./start.sh
+
+# Now the system will monitor your custom directory instead of ./inbox/
+# Perfect for Syncthing, Dropbox, or any shared folder setup
 ```
 
 ### 4. Manual API Usage (Optional)
@@ -73,11 +85,12 @@ docker-compose logs -f
 ## How It Works
 
 The system provides:
-1. **Automated Processing**: Drop PDFs in `./inbox/` → automatically parsed → stored in database → files deleted
-2. **PDF Parsing**: Extracts transaction data from BCA e-statement PDFs using tabula-py
-3. **Database Storage**: Stores transactions in PostgreSQL with proper indexing
-4. **REST API**: Provides endpoints for parsing, storing, and retrieving data
-5. **File Management**: Auto-deletion of processed files, failed files moved to `failed/` directory
+1. **Automated Processing**: Drop PDFs in configurable inbox directory → automatically parsed → stored in database → files deleted
+2. **Configurable Inbox**: Use any directory (local, network shares, Syncthing, etc.) as input folder
+3. **PDF Parsing**: Extracts transaction data from BCA e-statement PDFs using tabula-py
+4. **Database Storage**: Stores transactions in PostgreSQL with proper indexing
+5. **REST API**: Provides endpoints for parsing, storing, and retrieving data
+6. **File Management**: Auto-deletion of processed files, failed files moved to `failed/` directory
 
 ## Configuration
 
@@ -86,10 +99,27 @@ The system provides:
 - `POSTGRES_PORT=5432` - PostgreSQL database port
 
 ### Auto-Processor Configuration
+- `INBOX_HOST_PATH=./inbox` - Host directory to monitor for PDF files (default: ./inbox)
+- `INBOX_PATH=/srv/aftis/inbox` - Container internal path (usually no need to change)
 - `AUTO_DELETE_PDFS=true` - Delete files after successful processing (default: true)
 - `PROCESS_DELAY_SECONDS=2` - Wait time before processing new files (default: 2)
 - `MAX_RETRIES=3` - Number of retry attempts for failed processing (default: 3)
 - `SCAN_INTERVAL_SECONDS=60` - Periodic scan interval for missed files (default: 60)
+
+### Inbox Directory Examples
+```bash
+# Default local directory
+INBOX_HOST_PATH=./inbox
+
+# Syncthing directory  
+INBOX_HOST_PATH=/var/syncthing/eStatement
+
+# Network share
+INBOX_HOST_PATH=/mnt/nas/bank-statements
+
+# Dropbox directory
+INBOX_HOST_PATH=/home/user/Dropbox/BCA-Statements
+```
 
 ### Port Conflict Handling
 
@@ -129,7 +159,7 @@ The system provides:
 ├── schema.sql            # PostgreSQL table DDL
 ├── Dockerfile            # Service containers
 ├── main.py               # Original standalone script
-├── inbox/                # Drop PDFs here (auto-mounted volume)
+├── inbox/                # Default PDF directory (configurable via INBOX_HOST_PATH)
 └── tmp/                  # Processing workspace
 ```
 
@@ -194,10 +224,23 @@ docker-compose build --no-cache
 
 ### Auto-Processor Issues
 
-- **Files not detected**: Check if containers have access to `./inbox/` directory
+- **Files not detected**: Check if containers have access to your configured inbox directory (`INBOX_HOST_PATH`)
+- **Custom directory not working**: Ensure directory exists and has proper permissions (`chmod 755`)
 - **Processing failures**: Check for PDF format compatibility and container logs
 - **Missed files**: Auto-processor now includes periodic scanning (every 60s by default)
 - **Port conflicts in internal services**: Auto-processor will retry with exponential backoff
+
+### Directory Permission Issues
+```bash
+# Ensure your custom inbox directory is accessible
+sudo mkdir -p /your/custom/path
+sudo chown $USER:$USER /your/custom/path
+chmod 755 /your/custom/path
+
+# For Syncthing directories
+sudo chown $USER:$USER /var/syncthing/eStatement
+chmod 755 /var/syncthing/eStatement
+```
 
 ## Dependencies
 

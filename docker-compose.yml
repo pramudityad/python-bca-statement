@@ -31,9 +31,10 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-aftis}
       - POSTGRES_USER=${POSTGRES_USER:-aftis_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aftis_password}
+      - INBOX_PATH=${INBOX_PATH:-/srv/aftis/inbox}
     volumes:
       - shared-data:/srv/aftis
-      - ./inbox:/srv/aftis/inbox
+      - ${INBOX_HOST_PATH:-./inbox}:${INBOX_PATH:-/srv/aftis/inbox}
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,9 +49,10 @@ services:
       - PROCESS_DELAY_SECONDS=${PROCESS_DELAY_SECONDS:-2}
       - MAX_RETRIES=${MAX_RETRIES:-3}
       - PARSER_URL=${PARSER_URL:-http://parser:8080}
+      - INBOX_PATH=${INBOX_PATH:-/srv/aftis/inbox}
     volumes:
       - shared-data:/srv/aftis
-      - ./inbox:/srv/aftis/inbox
+      - ${INBOX_HOST_PATH:-./inbox}:${INBOX_PATH:-/srv/aftis/inbox}
     depends_on:
       - parser
     command: python3 /srv/aftis/auto-processor.py

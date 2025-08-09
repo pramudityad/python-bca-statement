@@ -70,6 +70,7 @@ echo -e "\n${GREEN}🎉 AFTIS is ready!${NC}"
 if [ "$ACTUAL_PORT" != "N/A" ]; then
     echo -e "${GREEN}📱 Web interface: http://localhost:$ACTUAL_PORT${NC}"
 fi
-echo -e "${GREEN}📁 Drop PDF files in: ./inbox/${NC}"
+INBOX_DISPLAY=$(grep "^INBOX_HOST_PATH=" .env 2>/dev/null | cut -d= -f2 || echo "./inbox")
+echo -e "${GREEN}📁 Drop PDF files in: ${INBOX_DISPLAY}/${NC}"
 echo -e "\n${BLUE}📝 To stop services: docker-compose down${NC}"
 echo -e "${BLUE}📊 To view logs: docker-compose logs -f${NC}"

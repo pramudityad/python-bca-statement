@@ -128,7 +128,7 @@ class AFTISHandler(BaseHTTPRequestHandler):
     def scan_inbox(self):
         """Scan inbox folder for PDF files"""
         try:
-            inbox_path = '/srv/aftis/inbox'
+            inbox_path = os.getenv('INBOX_PATH', '/srv/aftis/inbox')
             pdf_files = []
             
             if os.path.exists(inbox_path):
@@ -343,16 +343,17 @@ class AFTISHandler(BaseHTTPRequestHandler):
     def delete_inbox_file(self):
         """Delete a specific file from inbox"""
         try:
+            inbox_path = os.getenv('INBOX_PATH', '/srv/aftis/inbox')
             # Extract filename from path /inbox/filename.pdf
             filename = self.path.split('/')[-1]
-            file_path = os.path.join('/srv/aftis/inbox', filename)
+            file_path = os.path.join(inbox_path, filename)
             
             if not os.path.exists(file_path):
                 self.send_error(404, f'File {filename} not found')
                 return
             
             # Security check: ensure file is in inbox directory
-            if not os.path.abspath(file_path).startswith('/srv/aftis/inbox/'):
+            if not os.path.abspath(file_path).startswith(os.path.abspath(inbox_path) + os.sep):
                 self.send_error(403, 'Access denied')
                 return
             
@@ -375,7 +376,7 @@ class AFTISHandler(BaseHTTPRequestHandler):
     def clear_inbox(self):
         """Delete all PDF files from inbox"""
         try:
-            inbox_path = '/srv/aftis/inbox'
+            inbox_path = os.getenv('INBOX_PATH', '/srv/aftis/inbox')
             deleted_files = []
             
             if not os.path.exists(inbox_path):
@@ -407,7 +408,8 @@ class AFTISHandler(BaseHTTPRequestHandler):
 
 def main():
     # Ensure directories exist
-    os.makedirs('/srv/aftis/inbox', exist_ok=True)
+    inbox_path = os.getenv('INBOX_PATH', '/srv/aftis/inbox')
+    os.makedirs(inbox_path, exist_ok=True)
     os.makedirs('/srv/aftis/tmp', exist_ok=True)
     
     port = int(os.getenv('AFTIS_PORT', '8080'))
