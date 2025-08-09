@@ -11,6 +11,7 @@ import json
 import logging
 import requests
 import shutil
+import threading
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -40,11 +41,13 @@ class PDFProcessor(FileSystemEventHandler):
         self.auto_delete = os.getenv('AUTO_DELETE_PDFS', 'true').lower() == 'true'
         self.process_delay = int(os.getenv('PROCESS_DELAY_SECONDS', '2'))
         self.max_retries = int(os.getenv('MAX_RETRIES', '3'))
+        self.scan_interval = int(os.getenv('SCAN_INTERVAL_SECONDS', '60'))  # Periodic scan every 60s
         
         logger.info(f"Auto-processor initialized:")
         logger.info(f"  - Auto delete: {self.auto_delete}")
         logger.info(f"  - Process delay: {self.process_delay}s")
         logger.info(f"  - Max retries: {self.max_retries}")
+        logger.info(f"  - Scan interval: {self.scan_interval}s")
     
     def wait_for_file_stable(self, file_path, timeout=10):
         """Wait for file to be completely written"""
@@ -212,6 +215,34 @@ class PDFProcessor(FileSystemEventHandler):
         # Process the file
         self.process_file_with_retries(file_path)
     
+    def scan_for_missed_files(self):
+        """Periodic scan for files that might have been missed"""
+        try:
+            if not os.path.exists(self.inbox_path):
+                return
+            
+            existing_files = [f for f in os.listdir(self.inbox_path) if f.lower().endswith('.pdf')]
+            
+            if existing_files:
+                logger.info(f"🔍 Periodic scan found {len(existing_files)} unprocessed files")
+                for filename in existing_files:
+                    file_path = os.path.join(self.inbox_path, filename)
+                    logger.info(f"📄 Processing missed file: {filename}")
+                    self.process_file_with_retries(file_path)
+        except Exception as e:
+            logger.error(f"Error during periodic scan: {e}")
+    
+    def start_periodic_scanner(self):
+        """Start periodic scanning in background thread"""
+        def scanner_loop():
+            while True:
+                time.sleep(self.scan_interval)
+                self.scan_for_missed_files()
+        
+        scanner_thread = threading.Thread(target=scanner_loop, daemon=True)
+        scanner_thread.start()
+        logger.info(f"📡 Started periodic scanner (every {self.scan_interval}s)")
+    
     def on_moved(self, event):
         """Handle file move events (treat as new file)"""
         if event.is_directory:
@@ -258,6 +289,10 @@ def main():
     try:
         observer.start()
         logger.info(f"👀 Watching {inbox_path} for new PDF files...")
+        
+        # Start periodic scanner for missed files
+        event_handler.start_periodic_scanner()
+        
         logger.info("Press Ctrl+C to stop")
         
         while True:
