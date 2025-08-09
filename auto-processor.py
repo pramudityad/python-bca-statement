@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 class PDFProcessor(FileSystemEventHandler):
     def __init__(self):
         self.parser_url = os.getenv('PARSER_URL', "http://parser:8080")
-        self.inbox_path = "/srv/aftis/inbox"
+        self.inbox_path = os.getenv('INBOX_PATH', "/srv/aftis/inbox")
         self.failed_path = "/srv/aftis/failed"
         self.processing_files = set()  # Track files currently being processed
         
@@ -44,6 +44,7 @@ class PDFProcessor(FileSystemEventHandler):
         self.scan_interval = int(os.getenv('SCAN_INTERVAL_SECONDS', '60'))  # Periodic scan every 60s
         
         logger.info(f"Auto-processor initialized:")
+        logger.info(f"  - Inbox path: {self.inbox_path}")
         logger.info(f"  - Auto delete: {self.auto_delete}")
         logger.info(f"  - Process delay: {self.process_delay}s")
         logger.info(f"  - Max retries: {self.max_retries}")
@@ -255,8 +256,8 @@ class PDFProcessor(FileSystemEventHandler):
 
 def process_existing_files():
     """Process any existing files in inbox on startup"""
-    inbox_path = "/srv/aftis/inbox"
     processor = PDFProcessor()
+    inbox_path = processor.inbox_path
     
     if not os.path.exists(inbox_path):
         logger.info("Inbox directory does not exist, creating it")
@@ -281,8 +282,8 @@ def main():
     process_existing_files()
     
     # Start watching for new files
-    inbox_path = "/srv/aftis/inbox"
     event_handler = PDFProcessor()
+    inbox_path = event_handler.inbox_path
     observer = Observer()
     observer.schedule(event_handler, inbox_path, recursive=False)
     

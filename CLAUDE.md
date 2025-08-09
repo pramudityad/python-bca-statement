@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Python script that processes MyBCA e-statement PDF files to extract transaction data and generate Excel reports. The script parses bank statement PDFs, extracts transaction information, calculates running balances, and outputs organized Excel files with proper formatting.
+This is a Python script that processes eStatement e-statement PDF files to extract transaction data and generate Excel reports. The script parses bank statement PDFs, extracts transaction information, calculates running balances, and outputs organized Excel files with proper formatting.
 
 ## Development Environment Setup
 
@@ -78,8 +78,8 @@ The codebase is a single-file Python script (`main.py`) with the following key c
 6. Output saved as both Excel (with sheets per period) and CSV files
 
 ### Input Requirements
-- PDF files must be MyBCA e-statements placed in `statements/` folder
-- PDFs should contain standard MyBCA format with consistent table structure
+- PDF files must be eStatement e-statements placed in `statements/` folder
+- PDFs should contain standard eStatement format with consistent table structure
 - Initial balance extracted from "SALDO AWAL" row in the data
 
 ### Output Format
@@ -101,7 +101,7 @@ Key libraries:
 ## File Structure Expectations
 
 ```
-inbox/               # Input folder for PDF files (Docker auto-processing)
+inbox/               # Default input folder for PDF files (configurable via INBOX_HOST_PATH)
 statements/          # Input folder for PDF files (local processing)
 main.py             # Main processing script
 Pipfile             # Pipenv dependencies
@@ -109,30 +109,90 @@ docker-compose.yml   # Docker services configuration
 start.sh            # Enhanced startup script with port conflict handling
 check-ports.sh      # Port conflict detection and resolution
 .env                 # Environment configuration (create from .env.example)
+syncthing-example.md # Example configuration for Syncthing directories
 {account_number}.xlsx  # Output Excel file
 {account_number}_{period}.csv  # Output CSV files per period
 ```
+
+## Configurable Inbox Directory
+
+The system supports monitoring any directory for PDF files, not just the default `./inbox/` folder. This is particularly useful for:
+
+- **Syncthing Integration**: Monitor synchronized directories like `/var/syncthing/myBCA/`
+- **Network Shares**: Process files from mounted NAS or shared drives
+- **Cloud Storage**: Monitor Dropbox, Google Drive, or OneDrive folders
+- **Automated Workflows**: Integration with other tools that drop files in specific locations
+
+### Configuration Options
+
+Set these environment variables in your `.env` file:
+
+- `INBOX_HOST_PATH`: The directory on your host system to monitor (default: `./inbox`)
+- `INBOX_PATH`: The path inside Docker containers (default: `/srv/aftis/inbox`, rarely needs changing)
+
+### Example Configurations
+
+1. **Syncthing Directory**:
+   ```bash
+   INBOX_HOST_PATH=/var/syncthing/myBCA
+   ```
+
+2. **Network Share**:
+   ```bash
+   INBOX_HOST_PATH=/mnt/nas/bank-statements
+   ```
+
+3. **Cloud Storage**:
+   ```bash
+   INBOX_HOST_PATH=/home/user/Dropbox/BCA-Statements
+   ```
+
+### Setup Steps for Custom Directory
+
+1. Create and configure your `.env` file:
+   ```bash
+   cp .env.example .env
+   echo "INBOX_HOST_PATH=/your/custom/path" >> .env
+   ```
+
+2. Ensure directory permissions:
+   ```bash
+   sudo mkdir -p /your/custom/path
+   sudo chown $USER:$USER /your/custom/path
+   chmod 755 /your/custom/path
+   ```
+
+3. Start the system:
+   ```bash
+   ./start.sh
+   ```
+
+The startup script will display the configured inbox path, confirming your custom directory is being monitored.
 
 ## Auto-Processing System
 
 The Docker setup includes an auto-processing system that:
 
-- Monitors `inbox/` folder for new PDF files
-- Automatically processes PDFs when detected
+- Monitors configurable inbox directory for new PDF files (supports any local or network path)
+- Automatically processes PDFs when detected via file system events
 - Extracts transactions and stores in PostgreSQL database
 - Provides web interface for viewing results
 - Includes periodic scanning (every 60s) to catch missed files
 - Handles file conflicts and processing retries
+- Works seamlessly with external sync tools (Syncthing, Dropbox, rsync, etc.)
 
 ### Auto-Processor Features
 
 - **File Monitoring**: Real-time detection of new PDF files
+- **Configurable Inbox**: Custom input directory via `INBOX_PATH` environment variable
 - **Retry Logic**: Configurable retry attempts for failed processing
 - **Periodic Scanning**: Background scanning for missed files (configurable interval)
 - **Error Handling**: Failed files moved to `failed/` directory
 - **Logging**: Comprehensive logging of processing activities
 
 Configuration via environment variables:
+- `INBOX_PATH`: Input directory for PDF files (default: /srv/aftis/inbox)
+- `INBOX_HOST_PATH`: Host directory to mount as inbox (default: ./inbox)
 - `AUTO_DELETE_PDFS`: Delete successfully processed files (default: true)
 - `PROCESS_DELAY_SECONDS`: Wait time before processing new files (default: 2)
 - `MAX_RETRIES`: Maximum retry attempts for failed files (default: 3)
