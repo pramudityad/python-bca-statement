@@ -197,3 +197,113 @@ Configuration via environment variables:
 - `PROCESS_DELAY_SECONDS`: Wait time before processing new files (default: 2)
 - `MAX_RETRIES`: Maximum retry attempts for failed files (default: 3)
 - `SCAN_INTERVAL_SECONDS`: Periodic scan interval for missed files (default: 60)
+
+## Troubleshooting
+
+### Docker Volume Management
+
+The application uses Docker volumes for persistent data storage. Here are common volume-related troubleshooting commands:
+
+#### Check Volume Usage
+
+```bash
+# List all Docker volumes
+docker volume ls
+
+# Show disk usage summary for Docker
+docker system df
+
+# Show detailed volume information
+docker volume inspect python-bca-statement_postgres_data
+docker volume inspect python-bca-statement_shared-data
+
+# Check container volume mounts
+docker inspect aftis-postgres | grep -A 10 "Mounts"
+docker inspect aftis-parser | grep -A 10 "Mounts"
+```
+
+#### Volume Storage Locations
+
+```bash
+# Find where Docker stores volumes on host
+docker system info | grep "Docker Root Dir"
+
+# Check specific volume size and location
+docker volume inspect python-bca-statement_postgres_data --format '{{.Mountpoint}}'
+sudo du -sh /var/lib/docker/volumes/python-bca-statement_postgres_data/_data
+```
+
+#### Clean Up Unused Volumes
+
+```bash
+# Remove unused volumes
+docker volume prune
+
+# Remove specific volume (stop containers first)
+docker-compose down
+docker volume rm python-bca-statement_postgres_data
+```
+
+### Database Connection Issues
+
+If you encounter database authentication errors like "password authentication failed for user 'aftis_user'":
+
+#### Problem
+The PostgreSQL container has existing data with different credentials than your current `.env` file.
+
+#### Solution
+Reset the database volume to reinitialize with current credentials:
+
+```bash
+# Stop all services
+docker-compose down
+
+# Remove PostgreSQL volume containing old credentials
+docker volume rm python-bca-statement_postgres_data
+
+# Restart services (PostgreSQL will reinitialize)
+docker-compose up -d
+
+# Verify database connection
+curl http://localhost:8082/health
+```
+
+#### Verification
+Check auto-processor logs for successful database storage:
+```bash
+docker logs aftis-auto-processor --tail 10
+# Should show: "stored in DB" instead of "database storage failed"
+```
+
+### Container Health Monitoring
+
+```bash
+# Check container status
+docker-compose ps
+
+# View logs for debugging
+docker logs aftis-postgres --tail 20
+docker logs aftis-parser --tail 20
+docker logs aftis-auto-processor --tail 20
+
+# Test service health
+curl http://localhost:8082/health
+curl http://localhost:8082/transactions
+```
+
+### Volume Mount Configuration
+
+The application uses these volume mounts in `docker-compose.yml`:
+
+- **PostgreSQL Data**: `postgres_data:/var/lib/postgresql/data` (persistent database)
+- **Shared Data**: `shared-data:/srv/aftis` (shared between parser and auto-processor)
+- **Inbox Mount**: `${INBOX_HOST_PATH}:${INBOX_PATH}` (PDF input directory)
+
+To verify mount configuration:
+```bash
+# Check volume definitions in compose file
+grep -A 5 "volumes:" docker-compose.yml
+
+# Verify environment variable expansion
+docker-compose config | grep -A 10 "volumes"
+```
