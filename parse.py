@@ -185,7 +185,17 @@ def main():
     
     pdf_path = sys.argv[1]
     transactions = parse_pdf(pdf_path)
-    
+
+    # Strict failure semantics: an unparsable PDF (or a real statement with zero
+    # extracted rows) must fail loudly so callers never treat it as a success
+    # and delete the file. parse_pdf() already prints the exception to stderr.
+    if not transactions:
+        print(
+            "Error: no valid transactions extracted (unparsable PDF or not a BCA e-statement)",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
     # Output JSON to stdout
     print(json.dumps(transactions, indent=2, default=str))
 

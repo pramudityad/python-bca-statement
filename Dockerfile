@@ -18,15 +18,16 @@ RUN apk add --no-cache \
 ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk
 
 # Create app directory
-WORKDIR /srv/aftis
+WORKDIR /app
 
 # Copy application files
 COPY parse.py .
 COPY server.py .
 COPY auto-processor.py .
+COPY migrations.sql .
 
-# Create directories
-RUN mkdir -p inbox tmp failed
+# Create data directories (mounted under /srv/aftis at runtime)
+RUN mkdir -p /srv/aftis/inbox /srv/aftis/tmp /srv/aftis/failed /srv/aftis/uploads
 
 # Expose port
 EXPOSE 8080
