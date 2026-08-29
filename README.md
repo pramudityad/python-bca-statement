@@ -2,6 +2,10 @@
 
 A minimal self-hosted pipeline that converts BCA bank statement PDFs into database rows using Docker + PostgreSQL with automated processing.
 
+Two ingestion paths exist:
+- **Share-sheet upload (primary)** — one tap from the myBCA Android app via the share sheet → Tailscale → `POST /upload`, works from anywhere, with a success/failure toast as real confirmation.
+- **Filesystem inbox (fallback)** — drop PDFs in a watched directory (Syncthing, Dropbox, NAS, …) and the auto-processor ingests them.
+
 ## Quick Start
 
 ### 🚀 Automated Startup (Recommended)
@@ -18,15 +22,62 @@ A minimal self-hosted pipeline that converts BCA bank statement PDFs into databa
 # 2. Configure environment (optional)
 cp .env.example .env
 # Edit .env with custom ports/credentials if needed
+# AFTIS_UPLOAD_TOKEN is required for the share-sheet path
 
 # 3. Start services
 docker-compose up -d
 ```
 
 This will start:
-- PostgreSQL database (default port 5432, configurable)
-- Parser service with web interface (default port 8080, configurable)
+- PostgreSQL database (no host port; only reachable inside the Docker network)
+- Parser service with web interface (localhost only, exposed to the tailnet via `tailscale serve`)
 - Auto-processor service (monitors inbox and processes PDFs automatically)
+
+## Share-Sheet Upload From Your Phone (Primary Path)
+
+Statements live only in the myBCA Android app until you push them — this path replaces Syncthing as the one-tap, works-from-anywhere handoff.
+
+### 1. Set up Tailscale
+```bash
+# On the server: install tailscale, then expose the parser on the tailnet
+sudo tailscale up
+tailscale serve --bg 8080
+# Note the resulting https://<host>.ts.net URL (it gets a real TLS cert)
+```
+Install the Tailscale app on your Android phone and sign in with the same account so both devices are on one tailnet.
+
+### 2. Configure the upload token
+```bash
+openssl rand -hex 32   # generate a secret
+# add it to .env:
+# AFTIS_UPLOAD_TOKEN=<the secret>
+./start.sh
+```
+
+### 3. Install HTTP Shortcuts and create the shortcut
+Install the free/open-source [HTTP Shortcuts](https://play.google.com/store/apps/details?id=ch.rmy.android.http_shortcuts) app and create a shortcut:
+
+- **Method**: `POST`
+- **URL**: `https://<host>.ts.net/upload?filename={{file_name}}`
+- **Request body**: *File* — pick the share-sheet payload
+- **Header**: `X-Auth-Token: <the secret>`
+- Enable **share target** (so it appears in the Android share sheet)
+- Enable **response display** so the parse result shows as a toast
+
+### 4. Use it
+In the myBCA app, long-press a statement → **Share** → **AFTIS**. Expect:
+- ✅ success toast with the period and transaction count
+- ♻️ same PDF shared again → `already_ingested` (no duplicate rows)
+- ⛔ a non-statement PDF → red failure toast; the file lands in `{INBOX_HOST_PATH}/failed/` on the host
+
+### Retiring Syncthing
+Keep the Syncthing inbox fallback for a month or two until the upload path has proven itself, then:
+1. Uninstall/disable Syncthing on the phone.
+2. Stop syncing the inbox directory (or leave `INBOX_HOST_PATH` pointing at it — nothing else changes).
+3. The watchdog inbox path remains a supported fallback indefinitely; it needs no phone-side daemon.
+
+### Browser fallback
+The web interface (`http://localhost:8080/` or `https://<host>.ts.net/`) serves a tiny upload page that POSTs the raw file body to the same endpoint — same dedup, same failure handling.
 
 ### 3. Automated Processing
 
@@ -40,7 +91,7 @@ cp your-statement.pdf ./inbox/
 # 2. Parse it automatically
 # 3. Store transactions in the database
 # 4. Delete the PDF file after successful processing
-# 5. Move failed files to /srv/aftis/failed/
+# 5. Move failed files to {INBOX_HOST_PATH}/failed/ (host-visible)
 ```
 
 #### Custom Inbox Directory (e.g., Syncthing)
@@ -106,6 +157,10 @@ The system provides:
 - `MAX_RETRIES=3` - Number of retry attempts for failed processing (default: 3)
 - `SCAN_INTERVAL_SECONDS=60` - Periodic scan interval for missed files (default: 60)
 
+### Upload Configuration
+- `AFTIS_UPLOAD_TOKEN=<secret>` - Shared secret required on every write endpoint (`/upload`, `/parse`, `/parse-and-store`, both `DELETE`s). The phone shortcut and browser page send it as the `X-Auth-Token` header.
+- Failed uploads are parked in `{INBOX_HOST_PATH}/failed/` so they are visible and retryable from the host.
+
 ### Inbox Directory Examples
 ```bash
 # Default local directory
@@ -136,15 +191,19 @@ INBOX_HOST_PATH=/home/user/Dropbox/BCA-Statements
 
 ## API Endpoints
 
+- `GET /` - Minimal browser upload page (raw-body `fetch` to `/upload`)
 - `GET /health` - Service health check
 - `GET /db-health` - Database connectivity check
 - `GET /scan` - List PDF files in inbox
+- `POST /upload?filename=…&force=0` - Raw-body PDF upload (share sheet / browser). Dedupes by SHA-256; `force=1` bypasses dedup for deliberate re-import. Returns 200 on success, `200 already_ingested` for a duplicate file, `409 already_ingested` for an already-ingested month, 422 with the reason on parse/storage failure.
 - `POST /parse` - Parse PDF and return JSON (no database storage)
 - `POST /parse-and-store` - Parse PDF and store in database
 - `DELETE /inbox/{filename}` - Delete a specific file from inbox
 - `DELETE /inbox` - Delete all PDF files from inbox
 - `GET /transactions` - Retrieve transactions with optional filters
   - Query parameters: `limit`, `account`, `period`
+
+All write endpoints require the `X-Auth-Token` header matching `AFTIS_UPLOAD_TOKEN`. The parser is bound to `127.0.0.1` on the host and exposed to the tailnet only via `tailscale serve`; PostgreSQL has no host port at all.
 
 ## File Structure
 ```
@@ -154,9 +213,10 @@ INBOX_HOST_PATH=/home/user/Dropbox/BCA-Statements
 ├── start.sh              # Enhanced startup script with port conflict handling
 ├── check-ports.sh        # Port conflict detection and resolution utility
 ├── parse.py              # PDF → JSON parser
-├── server.py             # HTTP API server with DELETE endpoints
+├── server.py             # HTTP API server (upload + parse endpoints)
 ├── auto-processor.py     # Automated PDF processing service (enhanced)
-├── schema.sql            # PostgreSQL table DDL
+├── schema.sql            # PostgreSQL table DDL (fresh databases)
+├── migrations.sql        # Idempotent runtime migrations (existing databases)
 ├── Dockerfile            # Service containers
 ├── main.py               # Original standalone script
 ├── inbox/                # Default PDF directory (configurable via INBOX_HOST_PATH)
@@ -226,7 +286,7 @@ docker-compose build --no-cache
 
 - **Files not detected**: Check if containers have access to your configured inbox directory (`INBOX_HOST_PATH`)
 - **Custom directory not working**: Ensure directory exists and has proper permissions (`chmod 755`)
-- **Processing failures**: Check for PDF format compatibility and container logs
+- **Processing failures**: Check for PDF format compatibility and container logs; failed files land in `{INBOX_HOST_PATH}/failed/`
 - **Missed files**: Auto-processor now includes periodic scanning (every 60s by default)
 - **Port conflicts in internal services**: Auto-processor will retry with exponential backoff
 

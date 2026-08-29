@@ -58,9 +58,32 @@ If ports are already in use:
    ```
 3. **Check Conflicts**: Use `./check-ports.sh` to detect and resolve conflicts
 
+## Share-Sheet Upload (Primary Path)
+
+The primary ingestion path is a one-tap Android share-sheet upload that replaces Syncthing as the everyday handoff:
+
+```
+myBCA → Downloads → long-press → Share → "AFTIS" (HTTP Shortcuts app)
+      → POST https://<host>.ts.net/upload?filename=… over Tailscale
+      → server.py: hash → dedup check → parse → insert → JSON toast
+```
+
+Key facts for developers:
+
+- **Transport**: The phone (HTTP Shortcuts, `ch.rmy.android.http_shortcuts`) POSTs the PDF as the **raw request body**. No multipart parsing anywhere.
+- **Auth**: Every write endpoint (`/upload`, `/parse`, `/parse-and-store`, both `DELETE`s) requires `X-Auth-Token` matching `AFTIS_UPLOAD_TOKEN`. Fails closed: if the token is unset, writes are denied.
+- **Dedup ledger**: `processed_files` table. `file_hash` (SHA-256) catches double-taps/retries; `UNIQUE(account_number, period)` catches a myBCA re-download of the same month with different bytes. `?force=1` bypasses both (deliberate re-import).
+- **Uploads land in `/srv/aftis/uploads/`**, deliberately outside `INBOX_PATH`, so the watchdog never double-parses an upload.
+- **Failed uploads** are moved to `{INBOX_PATH}/failed/` (host-visible via the bind mount) and the endpoint returns a 4xx/5xx with the reason.
+- **`GET /`** serves a minimal browser upload page that POSTs the same raw-body request via `fetch`.
+- **`server.py` is stdlib-only** (`ThreadingHTTPServer`). Code lives in `/app` (Dockerfile `WORKDIR /app`); `/srv/aftis` is data only.
+- Migrations: `server.py` applies `migrations.sql` idempotently at startup (needed because `schema.sql` only runs on a fresh `postgres_data` volume).
+
 ## Architecture
 
-The codebase is a single-file Python script (`main.py`) with the following key components:
+The codebase has two layers:
+
+### Standalone script (`main.py`)
 
 ### Core Functions
 - `union_source()`: Consolidates PDF table data and extracts amount/transaction type
@@ -69,8 +92,13 @@ The codebase is a single-file Python script (`main.py`) with the following key c
 - `save_to_excel()`: Outputs data to Excel with Indonesian Rupiah formatting
 - `reorder_sheets()`: Sorts Excel sheets chronologically by period
 
+### Docker pipeline (`parse.py` → `server.py` → PostgreSQL)
+- `parse.py` (invoked as a subprocess by `server.py`): tabula-py extraction, header (period/account) from fixed PDF coordinates, transaction grouping. Exits non-zero when nothing is extracted — strict failure semantics, never a silent success.
+- `server.py`: stdlib HTTP server (`ThreadingHTTPServer`) exposing `/upload`, `/parse`, `/parse-and-store`, `/transactions`, etc. Core parse+store logic lives in `parse_and_store_pdf_path()`, shared by the HTTP handlers and the upload path.
+- `auto-processor.py`: watchdog on `INBOX_PATH` (plus 60s rescan), calls `/parse-and-store`, deletes on success, parks failures in `{INBOX_PATH}/failed/`.
+
 ### Data Flow
-1. PDF files are read from `statements/` folder using tabula-py
+1. PDF files are read from `statements/` folder using tabula-py (standalone) or arrive via upload/Syncthing inbox (Docker)
 2. Header information (period, account number) extracted from specific PDF coordinates
 3. Transaction tables parsed from defined PDF areas with column boundaries
 4. Raw data cleaned and processed into structured transactions
@@ -102,10 +130,17 @@ Key libraries:
 
 ```
 inbox/               # Default input folder for PDF files (configurable via INBOX_HOST_PATH)
+inbox/failed/        # Host-visible failure dir (auto-processor + failed uploads)
 statements/          # Input folder for PDF files (local processing)
-main.py             # Main processing script
+main.py             # Main processing script (standalone)
+parse.py            # PDF → JSON parser (Docker pipeline subprocess)
+server.py           # HTTP API server (upload + parse endpoints)
+auto-processor.py   # Watchdog inbox processor
 Pipfile             # Pipenv dependencies
 docker-compose.yml   # Docker services configuration
+Dockerfile          # Container image (code at /app, data at /srv/aftis)
+schema.sql          # PostgreSQL DDL (fresh databases only)
+migrations.sql      # Idempotent runtime migrations (applied by server.py)
 start.sh            # Enhanced startup script with port conflict handling
 check-ports.sh      # Port conflict detection and resolution
 .env                 # Environment configuration (create from .env.example)
@@ -113,6 +148,8 @@ syncthing-example.md # Example configuration for Syncthing directories
 {account_number}.xlsx  # Output Excel file
 {account_number}_{period}.csv  # Output CSV files per period
 ```
+
+> Note: `watch-pdfs.py` and `copy-pdfs.sh` (pre-bind-mount `docker cp` ingestion) were removed in favor of the bind-mounted inbox; the share-sheet upload is the primary path.
 
 ## Configurable Inbox Directory
 
@@ -181,13 +218,15 @@ The Docker setup includes an auto-processing system that:
 - Handles file conflicts and processing retries
 - Works seamlessly with external sync tools (Syncthing, Dropbox, rsync, etc.)
 
+The primary path is the **share-sheet upload** (see the Share-Sheet Upload section) — the inbox/watchdog remains as a fallback that needs no phone-side daemon.
+
 ### Auto-Processor Features
 
 - **File Monitoring**: Real-time detection of new PDF files
 - **Configurable Inbox**: Custom input directory via `INBOX_PATH` environment variable
 - **Retry Logic**: Configurable retry attempts for failed processing
 - **Periodic Scanning**: Background scanning for missed files (configurable interval)
-- **Error Handling**: Failed files moved to `failed/` directory
+- **Error Handling**: Failed files moved to `{INBOX_PATH}/failed/` directory (host-visible)
 - **Logging**: Comprehensive logging of processing activities
 
 Configuration via environment variables:
@@ -197,3 +236,4 @@ Configuration via environment variables:
 - `PROCESS_DELAY_SECONDS`: Wait time before processing new files (default: 2)
 - `MAX_RETRIES`: Maximum retry attempts for failed files (default: 3)
 - `SCAN_INTERVAL_SECONDS`: Periodic scan interval for missed files (default: 60)
+- `AFTIS_UPLOAD_TOKEN`: Shared secret for write endpoints; the auto-processor sends it as `X-Auth-Token` to `/parse-and-store`

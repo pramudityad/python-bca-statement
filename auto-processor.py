@@ -31,7 +31,9 @@ class PDFProcessor(FileSystemEventHandler):
     def __init__(self):
         self.parser_url = os.getenv('PARSER_URL', "http://parser:8080")
         self.inbox_path = os.getenv('INBOX_PATH', "/srv/aftis/inbox")
-        self.failed_path = "/srv/aftis/failed"
+        # Under the inbox bind mount so failures are visible from the host
+        self.failed_path = os.path.join(self.inbox_path, 'failed')
+        self.auth_token = os.getenv('AFTIS_UPLOAD_TOKEN', '')
         self.processing_files = set()  # Track files currently being processed
         
         # Ensure directories exist
@@ -94,6 +96,7 @@ class PDFProcessor(FileSystemEventHandler):
             response = requests.post(
                 f"{self.parser_url}/parse-and-store",
                 json=payload,
+                headers={'X-Auth-Token': self.auth_token},
                 timeout=30
             )
             
@@ -201,6 +204,10 @@ class PDFProcessor(FileSystemEventHandler):
         
         file_path = event.src_path
         if not file_path.lower().endswith('.pdf'):
+            return
+        
+        # Never re-process files we parked in the failed/ subdirectory
+        if file_path.startswith(self.failed_path + os.sep):
             return
         
         filename = os.path.basename(file_path)

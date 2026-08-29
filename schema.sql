@@ -12,6 +12,8 @@ CREATE TABLE transactions (
     balance DECIMAL(15,2),
     account_number VARCHAR(20),
     period VARCHAR(20),
+    file_hash CHAR(64),
+    source_file TEXT,
     processed_at TIMESTAMP DEFAULT NOW(),
     created_at TIMESTAMP DEFAULT NOW()
 );
@@ -21,6 +23,22 @@ CREATE INDEX idx_transactions_date ON transactions(date);
 CREATE INDEX idx_transactions_account ON transactions(account_number);
 CREATE INDEX idx_transactions_period ON transactions(period);
 CREATE INDEX idx_transactions_created_at ON transactions(created_at);
+CREATE INDEX idx_transactions_file_hash ON transactions(file_hash);
+
+-- Provenance + dedup ledger (mirrors migrations.sql for fresh databases)
+--   file_hash            catches double-taps and retry-after-timeout of the same bytes
+--   UNIQUE(account, period) catches a re-download of the same month, which myBCA
+--                         can issue with different bytes (embedded PDF timestamps)
+CREATE TABLE processed_files (
+    id SERIAL PRIMARY KEY,
+    file_hash    CHAR(64) UNIQUE,
+    source_file  TEXT,
+    account_number VARCHAR(20),
+    period       VARCHAR(20),
+    txn_count    INTEGER,
+    ingested_at  TIMESTAMP DEFAULT NOW(),
+    UNIQUE (account_number, period)
+);
 
 -- Create a view for monthly summaries
 CREATE VIEW monthly_summary AS

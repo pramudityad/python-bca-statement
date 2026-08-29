@@ -7,8 +7,6 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-aftis}
       - POSTGRES_USER=${POSTGRES_USER:-aftis_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aftis_password}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
@@ -23,7 +21,7 @@ services:
     container_name: aftis-parser
     restart: unless-stopped
     ports:
-      - "${AFTIS_PORT:-8080}:8080"
+      - "127.0.0.1:${AFTIS_PORT:-8080}:8080"
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://aftis_user:aftis_password@postgres:5432/aftis}
       - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
@@ -32,13 +30,14 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-aftis_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aftis_password}
       - INBOX_PATH=${INBOX_PATH:-/srv/aftis/inbox}
+      - AFTIS_UPLOAD_TOKEN=${AFTIS_UPLOAD_TOKEN:-}
     volumes:
       - shared-data:/srv/aftis
       - ${INBOX_HOST_PATH:-./inbox}:${INBOX_PATH:-/srv/aftis/inbox}
     depends_on:
       postgres:
         condition: service_healthy
-    command: python3 /srv/aftis/server.py
+    command: python3 /app/server.py
 
   auto-processor:
     build: .
@@ -50,12 +49,13 @@ services:
       - MAX_RETRIES=${MAX_RETRIES:-3}
       - PARSER_URL=${PARSER_URL:-http://parser:8080}
       - INBOX_PATH=${INBOX_PATH:-/srv/aftis/inbox}
+      - AFTIS_UPLOAD_TOKEN=${AFTIS_UPLOAD_TOKEN:-}
     volumes:
       - shared-data:/srv/aftis
       - ${INBOX_HOST_PATH:-./inbox}:${INBOX_PATH:-/srv/aftis/inbox}
     depends_on:
       - parser
-    command: python3 /srv/aftis/auto-processor.py
+    command: python3 /app/auto-processor.py
 
 volumes:
   shared-data:
